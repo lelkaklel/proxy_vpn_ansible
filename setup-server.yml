@@ -1,0 +1,146 @@
+# файл: setup-server.yml
+---
+- hosts: servers
+  become: yes
+  vars:
+    client_name: "client"  # Имя клиента OpenVPN и логин для Squid
+    squid_password: "password"  # Пароль для Squid
+  tasks:
+    - name: Обновление и установка необходимых пакетов
+      apt:
+        update_cache: yes
+        name: 
+          - nano
+          - git
+          - curl
+          - htop
+          - expect
+          - squid
+          - apache2-utils
+        state: latest
+
+    - name: Проверить, установлен ли OpenVPN
+      command: which openvpn
+      register: openvpn_check
+      ignore_errors: yes
+
+    - name: Установить OpenVPN, если он не установлен
+      block:
+        - name: Загрузка скрипта установки OpenVPN
+          get_url:
+            url: https://raw.githubusercontent.com/angristan/openvpn-install/master/openvpn-install.sh
+            dest: /tmp/openvpn-install.sh
+
+        - name: Изменение прав на выполнение для скрипта установки OpenVPN
+          file:
+            path: /tmp/openvpn-install.sh
+            mode: '0755'
+            state: file
+
+        - name: Создать скрипт автоматизации установки OpenVPN
+          copy:
+            content: |
+              #!/usr/bin/expect -f
+
+              set timeout -1
+              spawn ./openvpn-install.sh
+
+              expect "IP address?"
+              send -- "\r"
+
+              expect "Do you want to enable IPv6 support (NAT)?"
+              send -- "\r"
+
+              expect "What port do you want OpenVPN to listen to?"
+              send -- "\r"
+
+              expect "What protocol do you want OpenVPN to use?"
+              send -- "\r"
+
+              expect "What DNS resolvers do you want to use with the VPN?"
+              send -- "\r"
+
+              expect "Enable compression?"
+              send -- "\r"
+
+              expect "Customize encryption settings?"
+              send -- "\r"
+
+              expect "Press any key to continue..."
+              send -- "\r"
+
+              expect "Tell me a name for the client."
+              send -- "{{ client_name }}\r"
+
+              expect "Do you want to protect the configuration file with a password?"
+              send -- "\r"
+
+              expect eof
+            dest: /tmp/install_openvpn.sh
+            mode: '0755'
+
+        - name: Выполнить скрипт автоматизации установки OpenVPN
+          command: /tmp/install_openvpn.sh
+          args:
+            chdir: /tmp
+
+        - name: Скачать клиентский файл OpenVPN на локальную машину
+          fetch:
+            src: /root/{{ client_name }}.ovpn
+            dest: ./
+            flat: yes
+
+      when: openvpn_check.rc != 0
+
+    - name: Сгенерировать логин и пароль для Squid
+      command: htpasswd -bc /etc/squid/passwords {{ client_name }} {{ squid_password }}
+      args:
+        creates: /etc/squid/passwords
+
+    - name: Копировать конфигурационный файл Squid на сервер
+      copy:
+        src: ./squid.conf
+        dest: /etc/squid/squid.conf
+        mode: '0644'
+
+    - name: Перезапустить Squid для применения новой конфигурации
+      systemd:
+        name: squid
+        state: restarted
+        enabled: yes
+
+    - name: Обеспечить правильные права на файл паролей Squid
+      file:
+        path: /etc/squid/passwords
+        owner: proxy
+        group: proxy
+        mode: '0640'
+    
+
+
+    # - name: Выполнение скрипта установки OpenVPN
+    #   command: /tmp/openvpn-install.sh
+    #   args:
+    #     chdir: /tmp
+
+    # - name: Настройка Firewall (ufw)
+    #   ufw:
+    #     rule: allow
+    #     port: '22'
+    #     proto: tcp
+
+    # - name: Включение Firewall
+    #   ufw:
+    #     state: enabled
+    #     policy: allow
+
+    # - name: Установка и настройка Nginx
+    #   apt:
+    #     name: nginx
+    #     state: latest
+
+    # - name: Включение и запуск Nginx
+    #   systemd:
+    #     name: nginx
+    #     enabled: yes
+    #     state: started

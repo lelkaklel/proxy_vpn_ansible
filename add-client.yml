@@ -1,0 +1,26 @@
+# файл: add-client.yml
+---
+- hosts: servers
+  become: yes
+  vars:
+    client_name: "client_2"  # Имя профиля OpenVPN и логин для Squid 
+    squid_password: "password_2"  # Пароль для Squid
+
+  tasks:
+    - name: Добавить новый профиль для OpenVPN
+      shell: |
+        export MENU_OPTION="1"
+        export CLIENT="{{ client_name }}"
+        export PASS="1"
+        /tmp/openvpn-install.sh
+
+    - name: Скачать клиентский файл OpenVPN на локальную машину
+      fetch:
+        src: /root/{{ client_name }}.ovpn
+        dest: ./
+        flat: yes
+
+    - name: Добавить нового пользователя Squid
+      command: htpasswd -b /etc/squid/passwords {{ client_name }} {{ squid_password }}
+
+    
